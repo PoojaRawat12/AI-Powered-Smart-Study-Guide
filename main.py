@@ -7,6 +7,34 @@ from PyPDF2 import PdfReader
 from fpdf import FPDF
 import io
 import time
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+
+def clean_question_text(text):
+    if not text:
+        return ""
+    
+    # Remove unwanted phrases
+    text = re.sub(r'(?i)q[:\-]?\s*', '', text)
+    text = re.sub(r'(?i)define briefly[:\-]?', 'Define', text)
+    text = re.sub(r'(?i)explain shortly[:\-]?', 'Explain', text)
+    text = re.sub(r'(?i)write a detailed note on[:\-]?', 'Write a note on', text)
+    text = re.sub(r'(?i)what is related to[:\-]?', 'Explain', text)
+    
+    # Remove diagram or extra content
+    text = re.sub(r'\(.diagram.\)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'page\s*\d+', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'||', '', text)
+
+    # Remove multiple spaces and trim
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # Capitalize first letter
+    if text:
+        text = text[0].upper() + text[1:]
+
+    return text
+
 
 # ---------------------------
 # Set A: Original AI Study Assistant 
@@ -16,7 +44,8 @@ import time
 VALID_SUBJECTS = [
     "maths", "mathematics", "physics", "chemistry", "biology",
     "english", "hindi", "sociology", "history", "geography",
-    "computer", "science", "accountancy", "economics", "business studies","python","computer science"
+    "computer", "science", "accountancy", "economics", "business studies",
+    "python","computer science","c","c++","operating system","dbms"
 ]
 
 def format_time(hours_float):
@@ -107,6 +136,16 @@ def export_plan_to_pdf(plan):
 
 # Export Questions to PDF
 def export_questions_to_pdf(questions):
+    """
+    Safe exporter: replaces characters not supported by latin-1
+    to avoid UnicodeEncodeError from fpdf while keeping behavior same.
+    """
+    def safe_latin(s: str) -> str:
+        if s is None:
+            return ""
+        # replace unsupported chars with '?'
+        return s.encode("latin-1", "replace").decode("latin-1")
+
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
@@ -116,23 +155,26 @@ def export_questions_to_pdf(questions):
 
     for qtype, qlist in questions.items():
         pdf.set_font("Arial", style="B", size=12)
-        pdf.cell(200, 8, f"{qtype} Questions", ln=True)
+        pdf.cell(200, 8, safe_latin(f"{qtype} Questions"), ln=True)
         pdf.set_font("Arial", size=12)
 
         for q in qlist:
-            if isinstance(q, tuple): # MCQ
+            if isinstance(q, tuple):  # MCQ: (question, options, ans)
                 question, options, ans = q
-                pdf.multi_cell(0, 8, f"- {question}")
+                pdf.multi_cell(0, 8, safe_latin(f"- {question}"))
                 for opt in options:
-                    pdf.multi_cell(0, 8, f" • {opt}")
-                pdf.multi_cell(0, 8, f"Answer: {ans}")
+                    # Use a plain bullet char; safe_latin will replace if unsupported
+                    pdf.multi_cell(0, 8, safe_latin(f" - {opt}"))
+                pdf.multi_cell(0, 8, safe_latin(f"Answer: {ans}"))
             else:
-                pdf.multi_cell(0, 8, f"- {q}")
+                pdf.multi_cell(0, 8, safe_latin(f"- {q}"))
             pdf.ln(2)
 
         pdf.ln(4)
 
-    return pdf.output(dest="S").encode("latin-1")
+    # Return bytes (same api you already use)
+    return pdf.output(dest="S").encode("utf-8")
+
 
 
 # ---------------------------
@@ -310,8 +352,92 @@ QUESTION_BANK = {
         "Hard":[
             {"q":"What does list comprehension produce?","options":["New list","Dictionary","Set","Tuple"],"ans":"New list"},
             {"q":"Which is mutable?","options":["List","Tuple","String","Int"],"ans":"List"},
-            {"q":"What does '_init_' define?","options":["Constructor","Destructor","Method call","Static block"],"ans":"Constructor"},
+            {"q":"What does 'init' define?","options":["Constructor","Destructor","Method call","Static block"],"ans":"Constructor"},
             {"q":"What is GIL in Python?","options":["Global Interpreter Lock","General Input Loop","Global Input Limit","Graphical Interface Layer"],"ans":"Global Interpreter Lock"},
+        ],
+    },
+
+    "operating system": {
+        "Easy": [
+            {"question": "Which of the following is a type of OS?", 
+             "options": ["Batch", "Compiler", "Linker", "Loader"], 
+             "answer": "Batch"},
+            {"question": "Which is the core part of an operating system?", 
+             "options": ["Shell", "Kernel", "Command", "Script"], 
+             "answer": "Kernel"}
+        ],
+        "Medium": [
+            {"question": "Which scheduling algorithm gives the minimum average waiting time?", 
+             "options": ["FCFS", "SJF", "RR", "Priority"], 
+             "answer": "SJF"}
+        ],
+        "Hard": [
+            {"question": "Which of the following is not a type of fragmentation?", 
+             "options": ["Internal", "External", "File", "None"], 
+             "answer": "File"}
+        ],
+    },
+
+    "java": {
+        "Easy": [
+            {"question": "Which keyword is used to create a class in Java?", 
+             "options": ["class", "Class", "define", "object"], 
+             "answer": "class"},
+            {"question": "Which method is the entry point of a Java program?", 
+             "options": ["main()", "start()", "init()", "run()"], 
+             "answer": "main()"}
+        ],
+        "Medium": [
+            {"question": "Which of the following is not a Java primitive type?", 
+             "options": ["int", "float", "boolean", "string"], 
+             "answer": "string"}
+        ],
+        "Hard": [
+            {"question": "Which concept allows multiple methods with the same name?", 
+             "options": ["Overloading", "Overriding", "Encapsulation", "Abstraction"], 
+             "answer": "Overloading"}
+        ],
+    },
+
+    "c": {
+        "Easy": [
+            {"question": "Which of the following is used to print output in C?", 
+             "options": ["print()", "printf()", "cout", "cin"], 
+             "answer": "printf()"},
+            {"question": "Which header file is required for printf()?", 
+             "options": ["<stdio.h>", "<stdlib.h>", "<conio.h>", "<math.h>"], 
+             "answer": "<stdio.h>"}
+        ],
+        "Medium": [
+            {"question": "Which operator is used to get the address of a variable?", 
+             "options": ["&", "*", "%", "#"], 
+             "answer": "&"}
+        ],
+        "Hard": [
+            {"question": "Which of the following is not a storage class in C?", 
+             "options": ["auto", "static", "register", "define"], 
+             "answer": "define"}
+        ],
+    },
+
+    "c++": {
+        "Easy": [
+            {"question": "Which of the following is used to print output in C++?", 
+             "options": ["print()", "printf()", "cout", "echo"], 
+             "answer": "cout"},
+            {"question": "Which operator is used for scope resolution in C++?", 
+             "options": ["::", "->", ".", ":"], 
+             "answer": "::"}
+        ],
+        "Medium": [
+            {"question": "Which feature of OOP allows reusing code?", 
+             "options": ["Encapsulation", "Polymorphism", "Inheritance", "Abstraction"], 
+             "answer": "Inheritance"}
+        ],
+        "Hard": [
+            {"question": "Which of the following is not a valid access specifier in C++?", 
+             "options": ["public", "private", "protected", "secured"], 
+             "answer": "secured"}
         ],
     },
 
@@ -429,47 +555,130 @@ with tab1:
 
 # ---------------------------
 # Tab 2 - Question Generator 
-# ---------------------------
+# --------------------------
 with tab2:
     st.header("❓ AI Question Generator")
 
-    uploaded_file = st.file_uploader("Upload syllabus (PDF or TXT)", type=["pdf", "txt"])
-    if uploaded_file:
-        if uploaded_file.type == "application/pdf":
-            syllabus_text = extract_text_from_pdf(uploaded_file)
+    uploaded_file = st.file_uploader("📂 Upload syllabus (PDF or TXT)", type=["pdf", "txt"])
+
+    def clean_text(text):
+        text = re.sub(r'(?i)(lecture\s*notes?|prepared\s*by.|page\s\d+|contents?|index|chapter\s*\d+)', '', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
+    # Short 4–5 word question maker
+    def shorten(q):
+        words = q.split()
+        return " ".join(words[:5]).capitalize()
+
+    def generate_questions_from_text(text):
+        # Extract keywords/concepts from text
+        sentences = [s.strip() for s in text.split(".") if len(s.strip()) > 30]
+        random.shuffle(sentences)
+
+        mcqs, very_short, short_qs, long_qs = [], [], [], []
+
+        # Predefined question patterns
+        patterns = [
+            "Write a detailed note on {}",
+            "Explain the difference between {} and {}",
+            "Explain the types of {}",
+            "Describe the architecture of {}",
+            "Explain the concept of {}"
+        ]
+
+        for i, s in enumerate(sentences[:20]):
+            concept = s.split()[0:5]  # take first few words as concept
+            concept_text = " ".join(concept)
+
+            # MCQs
+            if i < 5:
+                mcq_question = f"{patterns[i % len(patterns)].format(concept_text, concept_text)}"
+                options = [f"{concept_text} Option {x}" for x in "ABCD"]
+                answer = options[0]
+                mcqs.append((mcq_question, options, answer))
+
+            # Very Short
+            elif i < 10:
+                very_short.append(f"Define briefly: {concept_text}")
+
+            # Short
+            elif i < 15:
+                short_qs.append(f"Explain shortly: {patterns[i % len(patterns)].format(concept_text, concept_text)}")
+
+            # Long
+            else:
+                long_qs.append(f"{patterns[i % len(patterns)].format(concept_text, concept_text)}")
+
+        return {"MCQ": mcqs, "Very Short": very_short, "Short": short_qs, "Long": long_qs}
+
+
+    def export_questions_to_pdf(questions_dict):
+        pdf_buffer = io.BytesIO()
+        c = canvas.Canvas(pdf_buffer, pagesize=letter)
+        width, height = letter
+        y = height - 50
+        c.setFont("Helvetica", 12)
+
+        for q_type, q_list in questions_dict.items():
+            c.drawString(50, y, f"{q_type} Questions:")
+            y -= 25
+            for i, q in enumerate(q_list, 1):
+                if y < 80:
+                    c.showPage()
+                    c.setFont("Helvetica", 12)
+                    y = height - 50
+                c.drawString(50, y, f"{i}. {q}")
+                y -= 25
+            y -= 20
+
+        c.save()
+        pdf_buffer.seek(0)
+        return pdf_buffer.getvalue()
+
+    if uploaded_file is not None:
+        file_name = uploaded_file.name
+
+        if file_name.endswith(".pdf"):
+            reader = PdfReader(uploaded_file)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() or ""
         else:
-            try:
-                syllabus_text = uploaded_file.read().decode("utf-8")
-            except:
-                syllabus_text = "⚠ Could not extract text"
-        st.subheader("📄 Extracted Syllabus Preview")
-        st.write(syllabus_text[:500] + "..." )
+            text = uploaded_file.read().decode("utf-8", errors="ignore")
 
-        if st.button("Generate Questions"):
-            questions = generate_questions_from_text(syllabus_text, num_questions=5)
+        text = clean_text(text)
+        questions = generate_questions_from_text(text)
 
-            st.success("✅ Questions Generated!")
+        st.subheader("📘 Choose question type to view:")
 
-            st.subheader("MCQs")
-            for q, opts, ans in questions["MCQ"]:
-                st.write(f"- {q}")
-                st.write(f"Options: {', '.join(opts)}")
-                st.write(f"Answer: {ans}")
+        col1, col2, col3 = st.columns(3)
+        selected_type = None
 
-            st.subheader("Very Short Questions")
-            for q in questions["Very Short"]:
-                st.write(f"- {q}")
+        with col1:
+            if st.button("🔵 Very Short"):
+                selected_type = "Very Short"
+        with col2:
+            if st.button("🟣 Short"):
+                selected_type = "Short"
+        with col3:
+            if st.button("🟠 Long"):
+                selected_type = "Long"
 
-            st.subheader("Short Questions")
-            for q in questions["Short"]:
-                st.write(f"- {q}")
+        if selected_type:
+            st.success(f"✅ {selected_type} Questions Generated!")
 
-            st.subheader("Long Questions")
-            for q in questions["Long"]:
-                st.write(f"- {q}")
+            for q in questions[selected_type]:
+                st.markdown(f"Q: {q}")
+                st.markdown("---")
 
-            pdf_bytes = export_questions_to_pdf(questions)
-            st.download_button("⬇ Download Questions as PDF", data=pdf_bytes, file_name="questions.pdf", mime="application/pdf")
+            pdf_bytes = export_questions_to_pdf({selected_type: questions[selected_type]})
+            st.download_button(
+                label="⬇ Download as PDF",
+                data=pdf_bytes,
+                file_name=f"{selected_type}_questions.pdf",
+                mime="application/pdf"
+            )
 
 # ---------------------------
 # Tab 3 - Quiz Generator 
@@ -477,7 +686,7 @@ with tab2:
 with tab3:
     st.header("📝 Quiz Generator (Pre-set MCQs)")
 
-    st.markdown("Select *Subject* and *Difficulty. Default is **None* — choose both to load questions.")
+    st.markdown("Select Subject and Difficulty. Default is **None — choose both to load questions.")
     col_subj, col_diff, col_num = st.columns([2,2,2])
 
     # Subject selector with "None" default
@@ -541,7 +750,7 @@ with tab3:
 
                 # Display quiz questions
                 for idx, q in enumerate(st.session_state.quiz3):
-                    st.markdown(f"*Q{idx+1}.* {q['q']}")
+                    st.markdown(f"Q{idx+1}. {q.get('q', q.get('question', ''))}")
                     # ensure options listed but no option pre-selected
                     # Streamlit radio requires an index, so we implement with radio + a placeholder default that doesn't match any option (None)
                     # To avoid preselection, we will render as radio with options and set index to 0 only if user had previously selected.
@@ -553,7 +762,7 @@ with tab3:
                             default_index = options.index(prev_choice)
                         else:
                             default_index = None
-                        choice = st.radio("Select your answer:", options, index=default_index if default_index is not None else 0, key=f"quiz3_q{idx}", disabled=st.session_state.submitted3)
+                        choice = st.radio("Select your answer:", options, index=None, key=f"quiz3_q{idx}", disabled=st.session_state.submitted3)
                         # BUT to simulate "no pre-selection", if previously None and we set index=0, it will select 1st option — so we handle by:
                         # If there was no prev_choice and not submitted, we treat the selection as None until user actively changes it.
                         # We detect whether the widget changed from default by storing a hidden marker per question.
@@ -571,7 +780,16 @@ with tab3:
                             st.session_state[marker_key] = choice
                     except Exception as e:
                         # fallback simple radio (shouldn't happen)
-                        choice = st.radio("Select your answer:", options, key=f"quiz3_q{idx}", disabled=st.session_state.submitted3)
+                        default_index=None
+                        if idx in st.session_state.answer3 and st.session_state.answer3[idx] in options:
+                            default_index= options.index(st.session_state.answer3[idx])
+
+                        choice = st.radio(
+                            "Select your answer:", 
+                            options,
+                            index=None,
+                            key=f"quiz3_q{idx}"
+                        )
                         if not st.session_state.submitted3:
                             st.session_state.answers3[idx] = choice
 
@@ -583,7 +801,7 @@ with tab3:
 
                 if not st.session_state.submitted3:
                     if attempted_count < total_q:
-                        st.warning(f"Please attempt all {total_q} questions. Currently attempted: *{attempted_count}*")
+                        st.warning(f"Please attempt all {total_q} questions. Currently attempted: {attempted_count}")
                     submit_disabled = (attempted_count != total_q) or (total_q == 0)
 
                     if st.button("Submit Answers and Check Score", disabled=submit_disabled, key="submit_quiz3"):
@@ -593,37 +811,53 @@ with tab3:
                         results = []
                         for i, q in enumerate(st.session_state.quiz3):
                             chosen = st.session_state.answers3.get(i)
-                            correct_ans = q['ans']
+                            correct_ans = q.get('ans') or q.get('answer')
+
                             is_correct = (chosen == correct_ans)
-                            results.append((i, chosen, correct_ans, is_correct, q['q']))
+                            question_text = q.get('q') or q.get('question')
+                            results.append((i, chosen, correct_ans, is_correct, question_text))
+
                             if is_correct:
                                 correct += 1
                         st.session_state.quiz3_results = results
                         st.session_state.quiz3_score = (correct, total_q)
                         # rerun to show results
-                        st.experimental_rerun()
+                        import streamlit as st; st.session_state["rerun"] = True
+
                 else:
                     # Show per-question feedback & final score
                     results = st.session_state.get('quiz3_results', [])
                     correct, total_q = st.session_state.get('quiz3_score', (0, total_q))
                     score_percent = (correct / total_q) * 100 if total_q > 0 else 0
 
+                    wrong_topics = []
                     for i, chosen, correct_ans, is_correct, qtext in results:
-                        st.markdown(f"*Q{i+1}.* {qtext}")
+                        st.markdown(f"Q{i+1}. {qtext}")
                         if chosen is None:
-                            st.warning(f"⚠ Not Attempted. The correct answer was *{correct_ans}*.")
+                            st.warning(f"⚠ Not Attempted. The correct answer was {correct_ans}.")
                         elif is_correct:
-                            st.success(f"✅ Correct! Your answer: *{chosen}. (Correct: **{correct_ans}*)")
+                            st.success(f"✅ Correct! Your answer: {chosen}. (Correct: **{correct_ans})")
                         else:
-                            st.error(f"❌ Incorrect. Your answer: *{chosen}. Correct answer: **{correct_ans}*.")
+                            st.error(f"❌ Incorrect. Your answer: {chosen}. Correct answer: **{correct_ans}.")
+                            # Extract topic keywords (you can refine this)
+                            topic_guess = qtext.split()[1:4]  # first few words after 'Q'
+                            wrong_topics.append(" ".join(topic_guess))
                         st.markdown("---")
 
                     # final score and balloons for good performance
                     if score_percent >= 70:
                         st.balloons()
-                        st.success(f"🎉 Excellent! You scored *{correct}* out of *{total_q}* ({score_percent:.1f}%).")
+                        st.success(f"🎉 Excellent! You scored {correct} out of {total_q} ({score_percent:.1f}%).Try revising the topics you missed to strengthen your concepts.")
+                    elif 50 <= score_percent < 70:
+                        st.warning(f"👍 Good effort! You scored {correct} out of {total_q} ({score_percent:.1f}%). Try revising the topics you missed to strengthen your concepts.")
                     else:
-                        st.info(f"💯 Final Score: *{correct}* out of *{total_q}* ({score_percent:.1f}%). Review the incorrect answers above.")
+                        st.error(f"⚠ You scored {correct} out of {total_q} ({score_percent:.1f}%). Your performance is below average — focus on understanding key topics again.")
+                        
+                    if wrong_topics:
+                        st.markdown("### 🔍 Suggested Revision Topics:")
+                        unique_topics = list(set(wrong_topics))
+                        for t in unique_topics:
+                            st.write(f"• Go through {t} again — you answered a related question incorrectly.")
 
                     if st.button("Start Another Quiz", key="restart_quiz3"):
                         # reset quiz state
